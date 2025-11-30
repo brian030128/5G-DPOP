@@ -3,6 +3,7 @@ import { DropStats } from '../services/api'
 
 interface DropAlertPanelProps {
     drops: DropStats
+    theme?: 'dark' | 'light'
 }
 
 // Get color for drop reason
@@ -42,7 +43,7 @@ function formatPktLen(len: number): string {
     return `${len} B`
 }
 
-export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
+export default function DropAlertPanel({ drops, theme = 'dark' }: DropAlertPanelProps) {
     const [selectedDropIndex, setSelectedDropIndex] = useState<number | null>(null)
     const [showAll, setShowAll] = useState(false)
     const hasDrops = drops.total > 0
@@ -53,6 +54,15 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
     const displayDrops = showAll
         ? (drops.recent_drops || [])
         : (drops.recent_drops || []).slice(0, 5)
+
+    // Theme-based styles
+    const textPrimary = theme === 'dark' ? 'text-white' : 'text-gray-900'
+    const textSecondary = theme === 'dark' ? 'text-slate-400' : 'text-gray-500'
+    const textMuted = theme === 'dark' ? 'text-slate-500' : 'text-gray-400'
+    const cardBg = theme === 'dark' ? 'bg-slate-800/30' : 'bg-gray-50'
+    const progressBg = theme === 'dark' ? 'bg-slate-700' : 'bg-gray-200'
+    const borderColor = theme === 'dark' ? 'border-slate-700' : 'border-gray-200'
+    const hoverBorder = theme === 'dark' ? 'hover:border-slate-600' : 'hover:border-gray-300'
 
     return (
         <div className="space-y-4">
@@ -67,7 +77,7 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
                             <div className={`font-semibold ${hasDrops ? 'text-red-400' : 'text-green-400'}`}>
                                 {hasDrops ? `${drops.total.toLocaleString()} Drops Detected` : 'No Drops Detected'}
                             </div>
-                            <div className="text-sm text-slate-400">
+                            <div className={textSecondary}>
                                 Drop Rate: {drops.rate_percent.toFixed(4)}%
                             </div>
                         </div>
@@ -86,7 +96,7 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
             {/* Drop Reasons Breakdown with Progress Bars */}
             {Object.keys(drops.by_reason || {}).length > 0 && (
                 <div>
-                    <h3 className="text-sm font-medium text-slate-300 mb-3">Drop Reasons Breakdown</h3>
+                    <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'} mb-3`}>Drop Reasons Breakdown</h3>
                     <div className="space-y-3">
                         {Object.entries(drops.by_reason)
                             .sort(([, a], [, b]) => b - a)
@@ -96,11 +106,11 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
                                         <span className={`text-xs px-2 py-0.5 rounded ${getReasonColor(reason)}`}>
                                             {reason}
                                         </span>
-                                        <span className="text-sm font-mono text-slate-300">
+                                        <span className={`text-sm font-mono ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                             {count.toLocaleString()} ({((count / drops.total) * 100).toFixed(1)}%)
                                         </span>
                                     </div>
-                                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                                    <div className={`h-2 ${progressBg} rounded-full overflow-hidden`}>
                                         <div
                                             className="h-full bg-gradient-to-r from-red-500 to-red-400 transition-all duration-500"
                                             style={{ width: `${(count / maxReasonCount) * 100}%` }}
@@ -115,7 +125,7 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
             {/* Recent Drops Table - Enhanced */}
             <div>
                 <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-slate-300">Recent Drop Events</h3>
+                    <h3 className={`text-sm font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>Recent Drop Events</h3>
                     {(drops.recent_drops?.length || 0) > 5 && (
                         <button
                             onClick={() => setShowAll(!showAll)}
@@ -126,7 +136,7 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
                     )}
                 </div>
                 {!drops.recent_drops || drops.recent_drops.length === 0 ? (
-                    <div className="text-center py-6 text-slate-500 text-sm bg-slate-800/30 rounded-lg">
+                    <div className={`text-center py-6 ${textMuted} text-sm ${cardBg} rounded-lg`}>
                         <div className="text-3xl mb-2">🎉</div>
                         <p>No recent drop events</p>
                         <p className="text-xs mt-1">Network is running smoothly</p>
@@ -137,8 +147,8 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
                             <div
                                 key={idx}
                                 className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedDropIndex === idx
-                                    ? 'bg-slate-700/50 border-cyan-500'
-                                    : 'bg-slate-800/30 border-slate-700 hover:border-slate-600'
+                                    ? `${theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-100'} border-cyan-500`
+                                    : `${cardBg} ${borderColor} ${hoverBorder}`
                                     }`}
                                 onClick={() => setSelectedDropIndex(selectedDropIndex === idx ? null : idx)}
                             >
@@ -154,13 +164,13 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
                                                     {drop.reason}
                                                 </span>
                                             </div>
-                                            <div className="text-xs text-slate-500 mt-0.5">
+                                            <div className={`text-xs ${textMuted} mt-0.5`}>
                                                 {new Date(drop.timestamp).toLocaleString()}
                                             </div>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <div className="text-sm font-mono text-slate-300">
+                                        <div className={`text-sm font-mono ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
                                             {formatPktLen(drop.pkt_len)}
                                         </div>
                                     </div>
@@ -168,24 +178,24 @@ export default function DropAlertPanel({ drops }: DropAlertPanelProps) {
 
                                 {/* Expanded Details */}
                                 {selectedDropIndex === idx && (
-                                    <div className="mt-3 pt-3 border-t border-slate-700 grid grid-cols-2 gap-3 text-xs">
+                                    <div className={`mt-3 pt-3 border-t ${borderColor} grid grid-cols-2 gap-3 text-xs`}>
                                         <div>
-                                            <span className="text-slate-500">Source IP:</span>
-                                            <span className="ml-2 font-mono text-slate-300">{drop.src_ip}</span>
+                                            <span className={textMuted}>Source IP:</span>
+                                            <span className={`ml-2 font-mono ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{drop.src_ip}</span>
                                         </div>
                                         <div>
-                                            <span className="text-slate-500">Dest IP:</span>
-                                            <span className="ml-2 font-mono text-slate-300">{drop.dst_ip}</span>
+                                            <span className={textMuted}>Dest IP:</span>
+                                            <span className={`ml-2 font-mono ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{drop.dst_ip}</span>
                                         </div>
                                         <div>
-                                            <span className="text-slate-500">Direction:</span>
+                                            <span className={textMuted}>Direction:</span>
                                             <span className={`ml-2 ${drop.direction === 'uplink' ? 'text-green-400' : 'text-blue-400'}`}>
                                                 {drop.direction === 'uplink' ? 'Uplink (UE → DN)' : 'Downlink (DN → UE)'}
                                             </span>
                                         </div>
                                         <div>
-                                            <span className="text-slate-500">Packet Size:</span>
-                                            <span className="ml-2 font-mono text-slate-300">{drop.pkt_len} bytes</span>
+                                            <span className={textMuted}>Packet Size:</span>
+                                            <span className={`ml-2 font-mono ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{drop.pkt_len} bytes</span>
                                         </div>
                                     </div>
                                 )}

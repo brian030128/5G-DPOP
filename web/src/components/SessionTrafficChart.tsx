@@ -7,6 +7,7 @@ import { SessionInfo } from '../services/api'
 
 interface SessionTrafficChartProps {
     sessions: SessionInfo[]
+    theme?: 'dark' | 'light'
 }
 
 interface SessionTrafficData {
@@ -47,10 +48,26 @@ function formatThroughput(bytes: number, seconds: number = 1): string {
 
 type ViewMode = 'bar' | 'pie' | 'trend'
 
-export default function SessionTrafficChart({ sessions }: SessionTrafficChartProps) {
+export default function SessionTrafficChart({ sessions, theme = 'dark' }: SessionTrafficChartProps) {
     const [viewMode, setViewMode] = useState<ViewMode>('bar')
     const [sortBy, setSortBy] = useState<'total' | 'uplink' | 'downlink'>('total')
     const [sessionHistory, setSessionHistory] = useState<Map<string, { bytes: number; time: number }[]>>(new Map())
+
+    // Theme-based styles
+    const gridColor = theme === 'dark' ? '#334155' : '#e2e8f0'
+    const axisColor = theme === 'dark' ? '#64748b' : '#94a3b8'
+    const tooltipBg = theme === 'dark' ? '#1e293b' : '#ffffff'
+    const tooltipBorder = theme === 'dark' ? '#334155' : '#e2e8f0'
+    const textColor = theme === 'dark' ? '#e2e8f0' : '#1e293b'
+    const mutedText = theme === 'dark' ? 'text-slate-400' : 'text-gray-500'
+    const buttonBg = theme === 'dark' ? 'bg-slate-700' : 'bg-gray-200'
+    const buttonText = theme === 'dark' ? 'text-slate-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
+    const cardBg = theme === 'dark' ? 'bg-slate-700/50' : 'bg-gray-100'
+    const textPrimary = theme === 'dark' ? 'text-white' : 'text-gray-900'
+    const tableBorder = theme === 'dark' ? 'border-slate-700' : 'border-gray-200'
+    const tableHover = theme === 'dark' ? 'hover:bg-slate-700/30' : 'hover:bg-gray-50'
+    const selectBg = theme === 'dark' ? 'bg-slate-700 border-slate-600' : 'bg-white border-gray-300'
+    const progressBg = theme === 'dark' ? 'bg-slate-700' : 'bg-gray-200'
 
     // Transform session data for charts
     const sessionData: SessionTrafficData[] = useMemo(() => {
@@ -150,11 +167,11 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
 
     if (sessions.length === 0) {
         return (
-            <div className="h-80 flex items-center justify-center text-slate-400">
+            <div className={`h-80 flex items-center justify-center ${mutedText}`}>
                 <div className="text-center">
                     <div className="text-4xl mb-2">📊</div>
                     <p>No active sessions</p>
-                    <p className="text-sm text-slate-500 mt-1">Session traffic will appear here</p>
+                    <p className={`text-sm mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>Session traffic will appear here</p>
                 </div>
             </div>
         )
@@ -165,15 +182,15 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
             {/* Controls */}
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-400">View:</span>
-                    <div className="flex bg-slate-700 rounded-lg p-1">
+                    <span className={`text-sm ${mutedText}`}>View:</span>
+                    <div className={`flex ${buttonBg} rounded-lg p-1`}>
                         {(['bar', 'pie', 'trend'] as ViewMode[]).map(mode => (
                             <button
                                 key={mode}
                                 onClick={() => setViewMode(mode)}
                                 className={`px-3 py-1 text-sm rounded-md transition-colors ${viewMode === mode
                                     ? 'bg-blue-500 text-white'
-                                    : 'text-slate-400 hover:text-white'
+                                    : buttonText
                                     }`}
                             >
                                 {mode === 'bar' ? '📊 Bar' : mode === 'pie' ? '🥧 Pie' : '📈 Trend'}
@@ -184,11 +201,11 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
 
                 {viewMode === 'bar' && (
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-slate-400">Sort by:</span>
+                        <span className={`text-sm ${mutedText}`}>Sort by:</span>
                         <select
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                            className="bg-slate-700 text-white text-sm rounded-lg px-3 py-1 border border-slate-600"
+                            className={`${selectBg} ${textPrimary} text-sm rounded-lg px-3 py-1 border`}
                         >
                             <option value="total">Total Traffic</option>
                             <option value="uplink">Uplink</option>
@@ -200,19 +217,19 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
 
             {/* Summary Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-slate-700/50 rounded-lg p-3">
-                    <div className="text-xs text-slate-400">Total Sessions</div>
-                    <div className="text-xl font-bold text-white">{sessions.length}</div>
+                <div className={`${cardBg} rounded-lg p-3`}>
+                    <div className={`text-xs ${mutedText}`}>Total Sessions</div>
+                    <div className={`text-xl font-bold ${textPrimary}`}>{sessions.length}</div>
                 </div>
-                <div className="bg-slate-700/50 rounded-lg p-3">
-                    <div className="text-xs text-slate-400">Total Traffic</div>
-                    <div className="text-xl font-bold text-white">{formatBytes(totals.total)}</div>
+                <div className={`${cardBg} rounded-lg p-3`}>
+                    <div className={`text-xs ${mutedText}`}>Total Traffic</div>
+                    <div className={`text-xl font-bold ${textPrimary}`}>{formatBytes(totals.total)}</div>
                 </div>
-                <div className="bg-slate-700/50 rounded-lg p-3">
+                <div className={`${cardBg} rounded-lg p-3`}>
                     <div className="text-xs text-green-400">↑ Total Uplink</div>
                     <div className="text-xl font-bold text-green-400">{formatBytes(totals.uplink)}</div>
                 </div>
-                <div className="bg-slate-700/50 rounded-lg p-3">
+                <div className={`${cardBg} rounded-lg p-3`}>
                     <div className="text-xs text-blue-400">↓ Total Downlink</div>
                     <div className="text-xl font-bold text-blue-400">{formatBytes(totals.downlink)}</div>
                 </div>
@@ -227,27 +244,27 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                             layout="vertical"
                             margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
                         >
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                             <XAxis
                                 type="number"
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={11}
                                 tickFormatter={(value) => formatBytes(value)}
                             />
                             <YAxis
                                 type="category"
                                 dataKey="ue_ip"
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={11}
                                 width={90}
                             />
                             <Tooltip
                                 contentStyle={{
-                                    backgroundColor: '#1e293b',
-                                    border: '1px solid #334155',
+                                    backgroundColor: tooltipBg,
+                                    border: `1px solid ${tooltipBorder}`,
                                     borderRadius: '8px',
                                 }}
-                                labelStyle={{ color: '#e2e8f0' }}
+                                labelStyle={{ color: textColor }}
                                 formatter={(value: number, name: string) => [
                                     formatBytes(value),
                                     name === 'uplink' ? '↑ Uplink' : '↓ Downlink'
@@ -274,7 +291,7 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                                     paddingAngle={2}
                                     dataKey="value"
                                     label={({ name, percent }) => `${name.split('.').pop()} (${(percent * 100).toFixed(0)}%)`}
-                                    labelLine={{ stroke: '#64748b' }}
+                                    labelLine={{ stroke: axisColor }}
                                 >
                                     {pieData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.color} />
@@ -282,13 +299,13 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                                 </Pie>
                                 <Tooltip
                                     contentStyle={{
-                                        backgroundColor: '#1e293b',
-                                        border: '1px solid #334155',
+                                        backgroundColor: tooltipBg,
+                                        border: `1px solid ${tooltipBorder}`,
                                         borderRadius: '8px',
-                                        color: '#e2e8f0',
+                                        color: textColor,
                                     }}
-                                    itemStyle={{ color: '#e2e8f0' }}
-                                    labelStyle={{ color: '#e2e8f0' }}
+                                    itemStyle={{ color: textColor }}
+                                    labelStyle={{ color: textColor }}
                                     formatter={(value: number) => [formatBytes(value), 'Traffic']}
                                 />
                             </PieChart>
@@ -299,20 +316,20 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                 {viewMode === 'trend' && (
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={trendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                            <XAxis dataKey="time" stroke="#64748b" fontSize={11} />
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                            <XAxis dataKey="time" stroke={axisColor} fontSize={11} />
                             <YAxis
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={11}
                                 tickFormatter={(value) => formatBytes(value)}
                             />
                             <Tooltip
                                 contentStyle={{
-                                    backgroundColor: '#1e293b',
-                                    border: '1px solid #334155',
+                                    backgroundColor: tooltipBg,
+                                    border: `1px solid ${tooltipBorder}`,
                                     borderRadius: '8px',
                                 }}
-                                labelStyle={{ color: '#e2e8f0' }}
+                                labelStyle={{ color: textColor }}
                                 formatter={(value: number) => [formatBytes(value)]}
                             />
                             <Legend />
@@ -335,11 +352,11 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
 
             {/* Session Details Table */}
             <div className="mt-4">
-                <h4 className="text-sm font-medium text-slate-300 mb-2">Session Traffic Details</h4>
+                <h4 className={`text-sm font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'} mb-2`}>Session Traffic Details</h4>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead>
-                            <tr className="text-slate-400 border-b border-slate-700">
+                            <tr className={`${mutedText} border-b ${tableBorder}`}>
                                 <th className="text-left py-2 px-2">#</th>
                                 <th className="text-left py-2 px-2">UE IP</th>
                                 <th className="text-left py-2 px-2">SEID</th>
@@ -359,7 +376,7 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                                 return (
                                     <tr
                                         key={session.seid}
-                                        className="border-b border-slate-700/50 hover:bg-slate-700/30"
+                                        className={`border-b ${tableBorder}/50 ${tableHover}`}
                                     >
                                         <td className="py-2 px-2">
                                             <div
@@ -368,7 +385,7 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                                             />
                                         </td>
                                         <td className="py-2 px-2 font-mono text-cyan-400">{session.ue_ip}</td>
-                                        <td className="py-2 px-2 font-mono text-slate-500 text-xs">{session.seid}</td>
+                                        <td className={`py-2 px-2 font-mono text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>{session.seid}</td>
                                         <td className="py-2 px-2 text-right font-mono text-green-400">
                                             {formatBytes(session.uplink)}
                                         </td>
@@ -381,12 +398,12 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                                         <td className="py-2 px-2 text-right font-mono text-blue-400/70">
                                             {session.packetsDL.toLocaleString()}
                                         </td>
-                                        <td className="py-2 px-2 text-right font-mono text-white font-medium">
+                                        <td className={`py-2 px-2 text-right font-mono ${textPrimary} font-medium`}>
                                             {formatBytes(session.total)}
                                         </td>
                                         <td className="py-2 px-2">
                                             <div className="flex items-center gap-2">
-                                                <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
+                                                <div className={`flex-1 h-2 ${progressBg} rounded-full overflow-hidden`}>
                                                     <div
                                                         className="h-full rounded-full transition-all duration-300"
                                                         style={{
@@ -395,7 +412,7 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                                                         }}
                                                     />
                                                 </div>
-                                                <span className="text-xs text-slate-400 w-12 text-right">
+                                                <span className={`text-xs ${mutedText} w-12 text-right`}>
                                                     {sharePercent.toFixed(1)}%
                                                 </span>
                                             </div>
@@ -407,7 +424,7 @@ export default function SessionTrafficChart({ sessions }: SessionTrafficChartPro
                     </table>
                 </div>
                 {sessions.length > 10 && (
-                    <div className="text-center text-sm text-slate-500 mt-2">
+                    <div className={`text-center text-sm ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'} mt-2`}>
                         Showing top 10 of {sessions.length} sessions
                     </div>
                 )}

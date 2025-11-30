@@ -16,4 +16,16 @@ export default defineConfig({
             },
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    // React core
+                    'vendor-react': ['react', 'react-dom'],
+                    // Charting library
+                    'vendor-recharts': ['recharts'],
+                },
+            },
+        },
+    },
 })

@@ -4,6 +4,7 @@ import { TrafficStats } from '../services/api'
 
 interface TrafficChartProps {
     metrics: TrafficStats
+    theme?: 'dark' | 'light'
 }
 
 interface DataPoint {
@@ -17,13 +18,24 @@ interface DataPoint {
 
 type ChartMode = 'throughput' | 'packets' | 'combined'
 
-export default function TrafficChart({ metrics }: TrafficChartProps) {
+export default function TrafficChart({ metrics, theme = 'dark' }: TrafficChartProps) {
     const [history, setHistory] = useState<DataPoint[]>([])
     const lastUpdateRef = useRef<number>(0)
     const prevPacketsRef = useRef<{ uplink: number; downlink: number }>({ uplink: 0, downlink: 0 })
     // Auto-detect unit: if max throughput > 0.1 Mbps, use Mbps; otherwise use Kbps
     const [useKbps, setUseKbps] = useState(true)
     const [chartMode, setChartMode] = useState<ChartMode>('throughput')
+
+    // Theme-based colors
+    const gridColor = theme === 'dark' ? '#334155' : '#e2e8f0'
+    const axisColor = theme === 'dark' ? '#64748b' : '#94a3b8'
+    const tooltipBg = theme === 'dark' ? '#1e293b' : '#ffffff'
+    const tooltipBorder = theme === 'dark' ? '#334155' : '#e2e8f0'
+    const textColor = theme === 'dark' ? '#e2e8f0' : '#1e293b'
+    const mutedText = theme === 'dark' ? 'text-slate-400' : 'text-gray-500'
+    const statsBg = theme === 'dark' ? 'bg-slate-700/30' : 'bg-gray-100'
+    const buttonBg = theme === 'dark' ? 'bg-slate-700' : 'bg-gray-200'
+    const buttonText = theme === 'dark' ? 'text-slate-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
 
     useEffect(() => {
         const now = Date.now()
@@ -200,15 +212,15 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
             {/* Chart Mode Selector & Stats */}
             <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-400">View:</span>
-                    <div className="flex bg-slate-700 rounded-lg p-1">
+                    <span className={`text-sm ${mutedText}`}>View:</span>
+                    <div className={`flex ${buttonBg} rounded-lg p-1`}>
                         {(['throughput', 'packets', 'combined'] as ChartMode[]).map(mode => (
                             <button
                                 key={mode}
                                 onClick={() => setChartMode(mode)}
                                 className={`px-3 py-1 text-sm rounded-md transition-colors ${chartMode === mode
                                     ? 'bg-blue-500 text-white'
-                                    : 'text-slate-400 hover:text-white'
+                                    : buttonText
                                     }`}
                             >
                                 {mode === 'throughput' ? '📈 Throughput' : mode === 'packets' ? '📦 Packets' : '📊 Combined'}
@@ -222,23 +234,23 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
                     <div className="flex gap-4 text-sm">
                         <div className="flex items-center gap-2">
                             <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                            <span className="text-slate-400">UL:</span>
+                            <span className={mutedText}>UL:</span>
                             <span className="text-green-400 font-mono">
                                 {chartMode === 'packets'
                                     ? `${stats.packets.uplinkAvg.toFixed(0)} pps`
                                     : `${stats.uplink.current.toFixed(2)} ${unit}`}
                             </span>
-                            <span className="text-slate-500 text-xs">(avg: {stats.uplink.avg.toFixed(2)})</span>
+                            <span className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>(avg: {stats.uplink.avg.toFixed(2)})</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                            <span className="text-slate-400">DL:</span>
+                            <span className={mutedText}>DL:</span>
                             <span className="text-blue-400 font-mono">
                                 {chartMode === 'packets'
                                     ? `${stats.packets.downlinkAvg.toFixed(0)} pps`
                                     : `${stats.downlink.current.toFixed(2)} ${unit}`}
                             </span>
-                            <span className="text-slate-500 text-xs">(avg: {stats.downlink.avg.toFixed(2)})</span>
+                            <span className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>(avg: {stats.downlink.avg.toFixed(2)})</span>
                         </div>
                     </div>
                 )}
@@ -249,10 +261,10 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
                 <ResponsiveContainer width="100%" height="100%">
                     {chartMode === 'combined' ? (
                         <ComposedChart data={history} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                             <XAxis
                                 dataKey="time"
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={11}
                                 tickLine={false}
                                 tickFormatter={formatXAxis}
@@ -260,25 +272,25 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
                             />
                             <YAxis
                                 yAxisId="left"
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
                                 domain={yAxisDomain}
-                                label={{ value: unit, angle: -90, position: 'insideLeft', style: { fill: '#64748b', fontSize: 11 } }}
+                                label={{ value: unit, angle: -90, position: 'insideLeft', style: { fill: axisColor, fontSize: 11 } }}
                             />
                             <YAxis
                                 yAxisId="right"
                                 orientation="right"
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
-                                label={{ value: 'pps', angle: 90, position: 'insideRight', style: { fill: '#64748b', fontSize: 11 } }}
+                                label={{ value: 'pps', angle: 90, position: 'insideRight', style: { fill: axisColor, fontSize: 11 } }}
                             />
                             <Tooltip
-                                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                                labelStyle={{ color: '#e2e8f0' }}
+                                contentStyle={{ backgroundColor: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: '8px' }}
+                                labelStyle={{ color: textColor }}
                             />
                             <Legend />
                             <Area yAxisId="left" type="monotone" dataKey="uplink" fill="#22c55e" fillOpacity={0.2} stroke="#22c55e" strokeWidth={2} name={`↑ UL (${unit})`} />
@@ -288,18 +300,18 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
                         </ComposedChart>
                     ) : (
                         <LineChart data={history} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                             <XAxis
                                 dataKey="time"
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={11}
                                 tickLine={false}
                                 tickFormatter={formatXAxis}
                                 interval={0}
-                                tick={{ fill: '#64748b' }}
+                                tick={{ fill: axisColor }}
                             />
                             <YAxis
-                                stroke="#64748b"
+                                stroke={axisColor}
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
@@ -310,7 +322,7 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
                                     value: unit,
                                     angle: -90,
                                     position: 'insideLeft',
-                                    style: { fill: '#64748b', fontSize: 11 }
+                                    style: { fill: axisColor, fontSize: 11 }
                                 }}
                             />
                             {stats && chartMode === 'throughput' && (
@@ -321,11 +333,11 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
                             )}
                             <Tooltip
                                 contentStyle={{
-                                    backgroundColor: '#1e293b',
-                                    border: '1px solid #334155',
+                                    backgroundColor: tooltipBg,
+                                    border: `1px solid ${tooltipBorder}`,
                                     borderRadius: '8px',
                                 }}
-                                labelStyle={{ color: '#e2e8f0' }}
+                                labelStyle={{ color: textColor }}
                                 formatter={(value: number, name: string) => [
                                     chartMode === 'packets' ? `${value} pps` : `${value.toFixed(3)} ${unit}`,
                                     name
@@ -358,20 +370,20 @@ export default function TrafficChart({ metrics }: TrafficChartProps) {
             {/* Statistics Summary */}
             {stats && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div className="bg-slate-700/30 rounded-lg p-2">
-                        <div className="text-xs text-slate-500">Peak Uplink</div>
+                    <div className={`${statsBg} rounded-lg p-2`}>
+                        <div className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>Peak Uplink</div>
                         <div className="text-green-400 font-mono">{stats.uplink.max.toFixed(2)} {unit}</div>
                     </div>
-                    <div className="bg-slate-700/30 rounded-lg p-2">
-                        <div className="text-xs text-slate-500">Peak Downlink</div>
+                    <div className={`${statsBg} rounded-lg p-2`}>
+                        <div className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>Peak Downlink</div>
                         <div className="text-blue-400 font-mono">{stats.downlink.max.toFixed(2)} {unit}</div>
                     </div>
-                    <div className="bg-slate-700/30 rounded-lg p-2">
-                        <div className="text-xs text-slate-500">UL Packets (60s)</div>
+                    <div className={`${statsBg} rounded-lg p-2`}>
+                        <div className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>UL Packets (60s)</div>
                         <div className="text-green-400/80 font-mono">{stats.packets.uplinkTotal.toLocaleString()}</div>
                     </div>
-                    <div className="bg-slate-700/30 rounded-lg p-2">
-                        <div className="text-xs text-slate-500">DL Packets (60s)</div>
+                    <div className={`${statsBg} rounded-lg p-2`}>
+                        <div className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>DL Packets (60s)</div>
                         <div className="text-blue-400/80 font-mono">{stats.packets.downlinkTotal.toLocaleString()}</div>
                     </div>
                 </div>
