@@ -619,7 +619,8 @@ for i in {0..4}; do ping -I uesimtun$i 8.8.8.8 -c 100 & done
 
 # drop test
 # reference:./scripts/drop_tests/README.md
-
+cd ~/drop_tests
+sudo bash run_tests.sh
 ```
 
 ---
