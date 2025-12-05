@@ -488,8 +488,11 @@ export interface TopologyNode {
 export interface TopologyLink {
     source: string
     target: string
-    type: 'n3' | 'n4' | 'n6' | 'n9'
+    type: 'n3' | 'n4' | 'n6' | 'n9' | 'radio'
     label?: string
+    hasActiveTraffic?: boolean   // Whether there's active traffic on this link
+    trafficRate?: number         // Traffic rate in bytes/sec
+    lastSeen?: string            // Timestamp of last traffic
 }
 
 export interface TopologyData {

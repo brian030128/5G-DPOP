@@ -71,6 +71,7 @@ type PacketEvent struct {
 	TEID      uint32
 	SrcIP     uint32
 	DstIP     uint32
+	OuterDst  uint32 // Outer destination IP (next hop UPF or gateway)
 	PktLen    uint32
 	Direction uint8
 	QFI       uint8
@@ -87,8 +88,8 @@ type SessionInfo struct {
 
 // Loader manages eBPF program loading and lifecycle
 type Loader struct {
-	objs     *upfMonitorObjects
-	links    []link.Link
+	objs         *upfMonitorObjects
+	links        []link.Link
 	reader       *ringbuf.Reader
 	packetReader *ringbuf.Reader
 	stopChan     chan struct{}
@@ -492,9 +493,9 @@ func FormatTimestamp(ns uint64) time.Time {
 func (l *Loader) readPacketEvents() {
 	for {
 		select {
-			case <-l.stopChan:
-				return
-				default:
+		case <-l.stopChan:
+			return
+		default:
 		}
 
 		record, err := l.packetReader.Read()
@@ -506,8 +507,9 @@ func (l *Loader) readPacketEvents() {
 			continue
 		}
 
-	// Parse packet event
-		if len(record.RawSample) < 24 {
+		// Parse packet event (now includes OuterDst field)
+		// struct size: timestamp(8) + teid(4) + src_ip(4) + dst_ip(4) + outer_dst(4) + pkt_len(4) + direction(1) + qfi(1) + pad(2) = 32 bytes
+		if len(record.RawSample) < 28 {
 			continue
 		}
 
@@ -516,9 +518,10 @@ func (l *Loader) readPacketEvents() {
 			TEID:      binary.LittleEndian.Uint32(record.RawSample[8:12]),
 			SrcIP:     binary.LittleEndian.Uint32(record.RawSample[12:16]),
 			DstIP:     binary.LittleEndian.Uint32(record.RawSample[16:20]),
-			PktLen:    binary.LittleEndian.Uint32(record.RawSample[20:24]),
-			Direction: record.RawSample[24],
-			QFI:       record.RawSample[25],
+			OuterDst:  binary.LittleEndian.Uint32(record.RawSample[20:24]),
+			PktLen:    binary.LittleEndian.Uint32(record.RawSample[24:28]),
+			Direction: record.RawSample[28],
+			QFI:       record.RawSample[29],
 		}
 
 		if l.OnPacketEvent != nil {

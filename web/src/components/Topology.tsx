@@ -78,12 +78,12 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
 
     // Calculate positions
     const nodePositions: Record<string, { x: number, y: number }> = {}
-    
+
     Object.entries(nodesByType).forEach(([type, nodes]) => {
         const x = layerX[type as keyof typeof layerX]
         const count = nodes.length
         const step = (height - padding * 2) / (count + 1)
-        
+
         nodes.forEach((node, idx) => {
             nodePositions[node.id] = {
                 x,
@@ -124,7 +124,7 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
 
     const getNodeStats = (node: TopologyNode) => {
         const stats = []
-        
+
         if (node.type === 'ue') {
             const session = sessions.find(s => s.ue_ip === node.ip || s.ue_ip === node.id)
             if (session) {
@@ -151,7 +151,7 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
         } else {
             stats.push({ label: 'IP', value: node.ip || 'N/A' })
         }
-        
+
         return stats
     }
 
@@ -162,8 +162,8 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
     return (
         <div className="w-full overflow-hidden">
             <div className="w-full relative">
-                <svg 
-                    viewBox={`0 0 ${width} ${height}`} 
+                <svg
+                    viewBox={`0 0 ${width} ${height}`}
                     className="w-full h-auto"
                     preserveAspectRatio="xMidYMid meet"
                 >
@@ -179,49 +179,72 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
                         const end = nodePositions[link.target]
                         if (!start || !end) return null
 
+                        // Check if this link has active traffic
+                        const hasTraffic = link.hasActiveTraffic === true
+
                         return (
                             <g key={`${link.source}-${link.target}-${idx}`}>
+                                {/* Base link line */}
                                 <line
                                     x1={start.x}
                                     y1={start.y}
                                     x2={end.x}
                                     y2={end.y}
-                                    stroke={linkColor}
-                                    strokeWidth="2"
+                                    stroke={hasTraffic ? trafficColor : linkColor}
+                                    strokeWidth={hasTraffic ? "3" : "2"}
                                     markerEnd="url(#arrowhead)"
                                     strokeDasharray={link.type === 'n3' ? "5,5" : ""}
+                                    opacity={hasTraffic ? 1 : 0.5}
+                                    className="transition-all duration-500"
                                 />
-                                {/* Traffic Animation */}
-                                <circle r="3" fill={trafficColor}>
-                                    <animate
-                                        attributeName="cx"
-                                        from={start.x}
-                                        to={end.x}
-                                        dur="1.5s"
-                                        repeatCount="indefinite"
+                                {/* Traffic Animation - Only show when there's active traffic */}
+                                {hasTraffic && (
+                                    <circle r="4" fill={trafficColor}>
+                                        <animate
+                                            attributeName="cx"
+                                            from={start.x}
+                                            to={end.x}
+                                            dur="1.5s"
+                                            repeatCount="indefinite"
+                                        />
+                                        <animate
+                                            attributeName="cy"
+                                            from={start.y}
+                                            to={end.y}
+                                            dur="1.5s"
+                                            repeatCount="indefinite"
+                                        />
+                                        <animate
+                                            attributeName="opacity"
+                                            values="0;1;1;0"
+                                            keyTimes="0;0.1;0.9;1"
+                                            dur="1.5s"
+                                            repeatCount="indefinite"
+                                        />
+                                    </circle>
+                                )}
+                                {/* Traffic glow effect for active links */}
+                                {hasTraffic && (
+                                    <line
+                                        x1={start.x}
+                                        y1={start.y}
+                                        x2={end.x}
+                                        y2={end.y}
+                                        stroke={trafficColor}
+                                        strokeWidth="6"
+                                        strokeDasharray={link.type === 'n3' ? "5,5" : ""}
+                                        opacity={0.3}
+                                        filter="blur(3px)"
                                     />
-                                    <animate
-                                        attributeName="cy"
-                                        from={start.y}
-                                        to={end.y}
-                                        dur="1.5s"
-                                        repeatCount="indefinite"
-                                    />
-                                    <animate
-                                        attributeName="opacity"
-                                        values="0;1;1;0"
-                                        keyTimes="0;0.1;0.9;1"
-                                        dur="1.5s"
-                                        repeatCount="indefinite"
-                                    />
-                                </circle>
+                                )}
                                 {/* Label */}
                                 <text
                                     x={(start.x + end.x) / 2}
                                     y={(start.y + end.y) / 2 - 5}
                                     textAnchor="middle"
-                                    fill={subTextColor}
+                                    fill={hasTraffic ? trafficColor : subTextColor}
                                     fontSize="10"
+                                    fontWeight={hasTraffic ? "bold" : "normal"}
                                 >
                                     {link.label || link.type.toUpperCase()}
                                 </text>
@@ -234,7 +257,7 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
                         const pos = nodePositions[node.id]
                         if (!pos) return null
                         let color = getColor(node.type)
-                        
+
                         // Check for drops on UPF
                         const isUpfWithDrops = node.type === 'upf' && drops.total > 0
                         if (isUpfWithDrops) {
@@ -242,8 +265,8 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
                         }
 
                         return (
-                            <g 
-                                key={node.id} 
+                            <g
+                                key={node.id}
                                 transform={`translate(${pos.x}, ${pos.y})`}
                                 onMouseEnter={(e) => {
                                     setHoveredNode(node)
@@ -269,7 +292,7 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
                                     strokeWidth="2"
                                     className="transition-all duration-300"
                                 />
-                                
+
                                 {/* Icon - Centered */}
                                 <g transform="translate(-12, -12)">
                                     {getIcon(node.type, { size: 24, color: color })}
@@ -306,7 +329,7 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
 
                 {/* Tooltip */}
                 {hoveredNode && (
-                    <div 
+                    <div
                         className={`fixed z-50 p-4 rounded-lg shadow-xl border ${tooltipBg} ${tooltipBorder} pointer-events-none`}
                         style={{ left: tooltipPos.x, top: tooltipPos.y }}
                     >
@@ -327,9 +350,8 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
                 )}
 
                 {/* Legend */}
-                <div className={`absolute bottom-4 right-4 p-3 rounded-lg border text-xs ${
-                    isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-white/80 border-gray-200'
-                }`}>
+                <div className={`absolute bottom-4 right-4 p-3 rounded-lg border text-xs ${isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-white/80 border-gray-200'
+                    }`}>
                     <div className={`font-semibold mb-2 ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>Legend</div>
                     <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -347,6 +369,17 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
                         <div className="flex items-center gap-2">
                             <span className="w-3 h-3 rounded-full bg-purple-500"></span>
                             <span className={isDark ? 'text-slate-400' : 'text-gray-600'}>DN (Data Network)</span>
+                        </div>
+                        <div className={`border-t ${isDark ? 'border-slate-700' : 'border-gray-200'} mt-2 pt-2`}>
+                            <div className={`font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-gray-600'}`}>Traffic</div>
+                            <div className="flex items-center gap-2">
+                                <span className="w-8 h-0.5 bg-green-500 rounded"></span>
+                                <span className={isDark ? 'text-slate-400' : 'text-gray-600'}>Active Flow</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="w-8 h-0.5 bg-slate-500 opacity-50 rounded"></span>
+                                <span className={isDark ? 'text-slate-400' : 'text-gray-600'}>Idle Path</span>
+                            </div>
                         </div>
                     </div>
                 </div>

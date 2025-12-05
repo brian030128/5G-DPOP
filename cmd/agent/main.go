@@ -573,10 +573,13 @@ func updateSessionStatsFromEBPF(loader *ebpf.Loader) {
 		for teid, stats := range teidStats {
 			session, found := pfcpCorrelation.GetSessionByTEID(teid)
 			if found && session != nil {
+				// Only update LastActive if traffic increased
+				if stats.Packets > session.PacketsUL || stats.Bytes > session.BytesUL {
+					session.LastActive = time.Now()
+				}
 				// TEID stats are uplink traffic
 				session.PacketsUL = stats.Packets
 				session.BytesUL = stats.Bytes
-				session.LastActive = time.Now()
 			}
 		}
 	}
@@ -589,10 +592,13 @@ func updateSessionStatsFromEBPF(loader *ebpf.Loader) {
 			ueIP := ebpf.FormatIP(ueIPUint32)
 			session, found := pfcpCorrelation.GetSessionByUEIP(ueIP)
 			if found && session != nil {
+				// Only update LastActive if traffic increased
+				if stats.Packets > session.PacketsDL || stats.Bytes > session.BytesDL {
+					session.LastActive = time.Now()
+				}
 				// UE IP stats are downlink traffic
 				session.PacketsDL = stats.Packets
 				session.BytesDL = stats.Bytes
-				session.LastActive = time.Now()
 			}
 		}
 	}

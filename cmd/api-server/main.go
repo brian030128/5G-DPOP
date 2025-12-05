@@ -58,6 +58,15 @@ type DropEvent struct {
 	PktLen    uint32 `json:"pkt_len"`
 }
 
+// FlowTraffic represents per-destination traffic for ULCL path differentiation
+type FlowTraffic struct {
+	DestIP     string `json:"dest_ip"`
+	Packets    uint64 `json:"packets"`
+	Bytes      uint64 `json:"bytes"`
+	LastActive string `json:"last_active,omitempty"`
+	OuterDst   string `json:"outer_dst,omitempty"` // Next hop UPF or gateway
+}
+
 // SessionInfo represents a PDU session (extended)
 type SessionInfo struct {
 	SEID      string   `json:"seid"`
@@ -82,6 +91,9 @@ type SessionInfo struct {
 	// Traffic statistics
 	BytesUL uint64 `json:"bytes_ul"`
 	BytesDL uint64 `json:"bytes_dl"`
+
+	// Per-flow traffic (for ULCL path differentiation)
+	FlowTraffic []FlowTraffic `json:"flow_traffic,omitempty"`
 
 	// QoS parameters
 	QoS5QI      uint8  `json:"qos_5qi,omitempty"`
@@ -638,16 +650,117 @@ type TopologyNode struct {
 
 // TopologyLink represents a link in the topology
 type TopologyLink struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
-	Label  string `json:"label"` // e.g. SEID
-	Type   string `json:"type"`  // "n3", "n4", "n6", "n9"
+	Source           string  `json:"source"`
+	Target           string  `json:"target"`
+	Label            string  `json:"label"`              // e.g. SEID
+	Type             string  `json:"type"`               // "n3", "n4", "n6", "n9", "radio"
+	HasActiveTraffic bool    `json:"hasActiveTraffic"`   // Whether there's active traffic
+	TrafficRate      float64 `json:"trafficRate"`        // Traffic rate in bytes/sec
+	LastSeen         string  `json:"lastSeen,omitempty"` // Timestamp of last traffic
 }
 
 // Topology represents the network topology
 type Topology struct {
 	Nodes []TopologyNode `json:"nodes"`
 	Links []TopologyLink `json:"links"`
+}
+
+// isSessionActive checks if a session has recent traffic activity
+// A session is considered active if it has traffic in the last 10 seconds
+func isSessionActive(session SessionInfo) bool {
+	if session.LastActive == "" {
+		// No LastActive timestamp - check if there's any traffic
+		return session.PacketsUL > 0 || session.PacketsDL > 0
+	}
+
+	// Parse LastActive timestamp
+	lastActive, err := time.Parse(time.RFC3339, session.LastActive)
+	if err != nil {
+		// If parsing fails, fall back to checking packet count
+		return session.PacketsUL > 0 || session.PacketsDL > 0
+	}
+
+	// Consider active if last activity was within 10 seconds
+	return time.Since(lastActive) < 10*time.Second
+}
+
+// isFlowActive checks if a specific flow (destination) has recent traffic
+func isFlowActive(flow FlowTraffic) bool {
+	if flow.LastActive == "" {
+		return flow.Packets > 0
+	}
+
+	lastActive, err := time.Parse(time.RFC3339, flow.LastActive)
+	if err != nil {
+		return flow.Packets > 0
+	}
+
+	// Consider active if last activity was within 10 seconds
+	return time.Since(lastActive) < 10*time.Second
+}
+
+// getActiveFlowsByOuterDst groups active flows by their outer destination (next hop)
+// This allows us to determine which UPF paths have active traffic
+func getActiveFlowsByOuterDst(session SessionInfo) map[string]bool {
+	result := make(map[string]bool)
+	for _, flow := range session.FlowTraffic {
+		if isFlowActive(flow) && flow.OuterDst != "" {
+			result[flow.OuterDst] = true
+		}
+	}
+	return result
+}
+
+// hasActiveFlowToN9Peer checks if session has active traffic going through N9 (to PSA-UPF)
+func hasActiveFlowToN9Peer(session SessionInfo) bool {
+	if session.N9PeerIP == "" {
+		return false
+	}
+	for _, flow := range session.FlowTraffic {
+		if isFlowActive(flow) && flow.OuterDst == session.N9PeerIP {
+			return true
+		}
+	}
+	return false
+}
+
+// hasActiveFlowToLocalBreakout checks if session has active traffic NOT going through N9
+// (i.e., local breakout traffic that exits directly from I-UPF)
+func hasActiveFlowToLocalBreakout(session SessionInfo) bool {
+	for _, flow := range session.FlowTraffic {
+		if isFlowActive(flow) {
+			// If OuterDst is empty or not N9PeerIP, it's local breakout
+			if flow.OuterDst == "" || flow.OuterDst != session.N9PeerIP {
+				return true
+			}
+		}
+	}
+	// If no flow tracking data, fall back to session-level activity
+	if len(session.FlowTraffic) == 0 {
+		return isSessionActive(session)
+	}
+	return false
+}
+
+// calculateTrafficRate calculates bytes per second for a session
+func calculateTrafficRate(session SessionInfo) float64 {
+	// Simple calculation: total bytes / session duration
+	if session.CreatedAt == "" {
+		return 0
+	}
+
+	created, err := time.Parse(time.RFC3339, session.CreatedAt)
+	if err != nil {
+		return 0
+	}
+
+	duration := time.Since(created).Seconds()
+	if duration <= 0 {
+		return 0
+	}
+
+	totalBytes := float64(session.BytesUL + session.BytesDL)
+	return totalBytes / duration
 }
 
 func (s *Server) handleTopology(c *gin.Context) {
@@ -657,7 +770,26 @@ func (s *Server) handleTopology(c *gin.Context) {
 	nodes := make(map[string]TopologyNode)
 	links := make([]TopologyLink, 0)
 
-	// Pass 1: Identify all UPFs and UEs first
+	// Track which links have active traffic (key: "source->target")
+	activeLinkTraffic := make(map[string]struct {
+		active      bool
+		trafficRate float64
+		lastSeen    string
+	})
+
+	// First, identify all UPFs from N9PeerIP (these are definitely UPFs)
+	upfIPs := make(map[string]bool)
+	for _, session := range s.sessions {
+		if session.UPFIP != "" {
+			upfIPs[session.UPFIP] = true
+		}
+		if session.N9PeerIP != "" {
+			upfIPs[session.N9PeerIP] = true
+		}
+		// UplinkPeerIP could be gNB or I-UPF - we'll determine later
+	}
+
+	// Pass 1: Create all nodes
 	for _, session := range s.sessions {
 		// UE Node
 		if session.UEIP != "" {
@@ -669,10 +801,10 @@ func (s *Server) handleTopology(c *gin.Context) {
 			}
 		}
 
-		// UPF Node
+		// UPF Node (from session)
 		upfIP := session.UPFIP
 		if upfIP == "" {
-			upfIP = "UPF-Local" // Fallback
+			upfIP = "UPF-Local"
 		}
 		nodes[upfIP] = TopologyNode{
 			ID:    upfIP,
@@ -680,94 +812,208 @@ func (s *Server) handleTopology(c *gin.Context) {
 			Label: "UPF " + upfIP,
 			IP:    upfIP,
 		}
+
+		// N9 Peer UPF (definitely a UPF in ULCL)
+		if session.N9PeerIP != "" {
+			nodes[session.N9PeerIP] = TopologyNode{
+				ID:    session.N9PeerIP,
+				Type:  "upf",
+				Label: "UPF " + session.N9PeerIP,
+				IP:    session.N9PeerIP,
+			}
+		}
+
+		// Determine if UplinkPeerIP is gNB or UPF
+		// If UplinkPeerIP == N9PeerIP, it's an I-UPF (already added above)
+		// If UplinkPeerIP is in upfIPs, it's a UPF
+		// Otherwise, it's likely the gNB
+		uplinkPeer := session.UplinkPeerIP
+		if uplinkPeer != "" && uplinkPeer != session.N9PeerIP && !upfIPs[uplinkPeer] {
+			// This is likely the gNB
+			if _, exists := nodes[uplinkPeer]; !exists {
+				nodes[uplinkPeer] = TopologyNode{
+					ID:    uplinkPeer,
+					Type:  "gnb",
+					Label: "gNB " + uplinkPeer,
+					IP:    uplinkPeer,
+				}
+			}
+		}
+
+		// Also check GNBIP (signaled gNB address)
+		if session.GNBIP != "" && !upfIPs[session.GNBIP] {
+			if _, exists := nodes[session.GNBIP]; !exists {
+				nodes[session.GNBIP] = TopologyNode{
+					ID:    session.GNBIP,
+					Type:  "gnb",
+					Label: "gNB " + session.GNBIP,
+					IP:    session.GNBIP,
+				}
+			}
+		}
 	}
 
-	// Pass 2: Identify Peers (gNB or other UPFs)
+	// Pass 2: Calculate traffic activity for each session's links
 	for _, session := range s.sessions {
 		upfIP := session.UPFIP
 		if upfIP == "" {
 			upfIP = "UPF-Local"
 		}
 
-		// Determine Access Peer (gNB)
-		// Prefer UplinkPeerIP (actual source of UL traffic) if available
-		accessPeerIP := session.UplinkPeerIP
+		sessionActive := isSessionActive(session)
+		trafficRate := calculateTrafficRate(session)
 
-		// Sanity check: Access Peer cannot be the UPF itself
-		if accessPeerIP == upfIP {
-			accessPeerIP = ""
+		// Determine gNB (the actual radio access point)
+		gnbIP := session.GNBIP
+
+		// Determine I-UPF (intermediate UPF in ULCL)
+		// In ULCL: gNB -> I-UPF -> PSA-UPF -> DN
+		// UplinkPeerIP from PSA-UPF's perspective is I-UPF
+		iUpfIP := ""
+		if session.N9PeerIP != "" && session.N9PeerIP != upfIP {
+			iUpfIP = session.N9PeerIP
+		} else if session.UplinkPeerIP != "" && upfIPs[session.UplinkPeerIP] {
+			iUpfIP = session.UplinkPeerIP
 		}
 
-		if accessPeerIP == "" {
-			accessPeerIP = session.GNBIP // Fallback to signaled IP
-		}
-
-		// Sanity check again
-		if accessPeerIP == upfIP {
-			accessPeerIP = ""
-		}
-
-		// Handle Access Peer (gNB)
-		if accessPeerIP != "" {
-			// Only create if not exists (don't overwrite UPF)
-			if _, exists := nodes[accessPeerIP]; !exists {
-				nodes[accessPeerIP] = TopologyNode{
-					ID:    accessPeerIP,
-					Type:  "gnb", // Default to gNB for access peer
-					Label: "Peer " + accessPeerIP,
-					IP:    accessPeerIP,
+		// Link: UE -> gNB (Radio)
+		if session.UEIP != "" && gnbIP != "" {
+			linkKey := session.UEIP + "->" + gnbIP
+			if existing, ok := activeLinkTraffic[linkKey]; !ok || sessionActive {
+				activeLinkTraffic[linkKey] = struct {
+					active      bool
+					trafficRate float64
+					lastSeen    string
+				}{
+					active:      existing.active || sessionActive,
+					trafficRate: existing.trafficRate + trafficRate,
+					lastSeen:    session.LastActive,
 				}
 			}
+		}
 
-			// Link: Access Peer -> UPF (N3)
-			links = append(links, TopologyLink{
-				Source: accessPeerIP,
-				Target: upfIP,
-				Label:  "N3",
-				Type:   "n3",
-			})
+		// Link: gNB -> I-UPF (N3) or gNB -> UPF (N3 if no ULCL)
+		if gnbIP != "" {
+			targetUPF := upfIP
+			if iUpfIP != "" {
+				targetUPF = iUpfIP
+			}
+			linkKey := gnbIP + "->" + targetUPF
+			if existing, ok := activeLinkTraffic[linkKey]; !ok || sessionActive {
+				activeLinkTraffic[linkKey] = struct {
+					active      bool
+					trafficRate float64
+					lastSeen    string
+				}{
+					active:      existing.active || sessionActive,
+					trafficRate: existing.trafficRate + trafficRate,
+					lastSeen:    session.LastActive,
+				}
+			}
+		}
 
-			// Link: UE -> Access Peer (Radio)
-			// Only create this link if we haven't already (to avoid duplicates)
-			// And only if this session has a UE
-			if session.UEIP != "" {
+		// Link: I-UPF -> PSA-UPF (N9) - only in ULCL
+		if iUpfIP != "" && iUpfIP != upfIP {
+			linkKey := iUpfIP + "->" + upfIP
+			if existing, ok := activeLinkTraffic[linkKey]; !ok || sessionActive {
+				activeLinkTraffic[linkKey] = struct {
+					active      bool
+					trafficRate float64
+					lastSeen    string
+				}{
+					active:      existing.active || sessionActive,
+					trafficRate: existing.trafficRate + trafficRate,
+					lastSeen:    session.LastActive,
+				}
+			}
+		}
+	}
+
+	// Pass 3: Create links with activity information
+	linkSet := make(map[string]bool)
+
+	for _, session := range s.sessions {
+		upfIP := session.UPFIP
+		if upfIP == "" {
+			upfIP = "UPF-Local"
+		}
+
+		sessionActive := isSessionActive(session)
+		gnbIP := session.GNBIP
+
+		// Determine I-UPF
+		iUpfIP := ""
+		if session.N9PeerIP != "" && session.N9PeerIP != upfIP {
+			iUpfIP = session.N9PeerIP
+		} else if session.UplinkPeerIP != "" && upfIPs[session.UplinkPeerIP] {
+			iUpfIP = session.UplinkPeerIP
+		}
+
+		// Radio Link: UE -> gNB
+		if session.UEIP != "" && gnbIP != "" {
+			linkKey := session.UEIP + "->" + gnbIP
+			if !linkSet[linkKey] {
+				linkSet[linkKey] = true
+				activity := activeLinkTraffic[linkKey]
 				links = append(links, TopologyLink{
-					Source: session.UEIP,
-					Target: accessPeerIP,
-					Label:  "Radio",
-					Type:   "radio",
+					Source:           session.UEIP,
+					Target:           gnbIP,
+					Label:            "Radio",
+					Type:             "radio",
+					HasActiveTraffic: activity.active || sessionActive,
+					TrafficRate:      activity.trafficRate,
+					LastSeen:         activity.lastSeen,
 				})
 			}
 		}
 
-		// Handle Core Peer (PSA-UPF in ULCL scenario)
-		// Use N9PeerIP if available (from Outer Header Creation pointing to another UPF)
-		n9PeerIP := session.N9PeerIP
-		if n9PeerIP == "" {
-			// Fallback: If GNBIP is present and different from Access Peer, it might be the Core-side UPF
-			if session.GNBIP != "" && session.GNBIP != accessPeerIP {
-				n9PeerIP = session.GNBIP
+		// N3 Link: gNB -> I-UPF (or gNB -> UPF if no ULCL)
+		if gnbIP != "" {
+			targetUPF := upfIP
+			if iUpfIP != "" {
+				targetUPF = iUpfIP
+			}
+			linkKey := gnbIP + "->" + targetUPF
+			if !linkSet[linkKey] {
+				linkSet[linkKey] = true
+				activity := activeLinkTraffic[linkKey]
+				links = append(links, TopologyLink{
+					Source:           gnbIP,
+					Target:           targetUPF,
+					Label:            "N3",
+					Type:             "n3",
+					HasActiveTraffic: activity.active || sessionActive,
+					TrafficRate:      activity.trafficRate,
+					LastSeen:         activity.lastSeen,
+				})
 			}
 		}
 
-		if n9PeerIP != "" {
-			// Only create if not exists
-			if _, exists := nodes[n9PeerIP]; !exists {
-				nodes[n9PeerIP] = TopologyNode{
-					ID:    n9PeerIP,
-					Type:  "upf",
-					Label: "UPF " + n9PeerIP,
-					IP:    n9PeerIP,
-				}
-			}
+		// N9 Link: I-UPF -> PSA-UPF (only in ULCL)
+		// This link is active only when there's traffic going through N9 to PSA
+		if iUpfIP != "" && iUpfIP != upfIP {
+			linkKey := iUpfIP + "->" + upfIP
+			if !linkSet[linkKey] {
+				linkSet[linkKey] = true
+				activity := activeLinkTraffic[linkKey]
 
-			// Link: UPF -> N9 Peer UPF (N9)
-			links = append(links, TopologyLink{
-				Source: upfIP,
-				Target: n9PeerIP,
-				Label:  "N9",
-				Type:   "n9",
-			})
+				// Use per-flow tracking to determine N9 activity
+				n9Active := hasActiveFlowToN9Peer(session)
+				// Fallback to session-level if no flow data
+				if !n9Active && len(session.FlowTraffic) == 0 {
+					n9Active = activity.active || sessionActive
+				}
+
+				links = append(links, TopologyLink{
+					Source:           iUpfIP,
+					Target:           upfIP,
+					Label:            "N9",
+					Type:             "n9",
+					HasActiveTraffic: n9Active,
+					TrafficRate:      activity.trafficRate,
+					LastSeen:         activity.lastSeen,
+				})
+			}
 		}
 	}
 
@@ -780,15 +1026,76 @@ func (s *Server) handleTopology(c *gin.Context) {
 		IP:    "Internet",
 	}
 
-	// Link UPF -> DN (for each UPF)
+	// N6 Link: UPF -> DN
+	// In ULCL architecture:
+	// - I-UPF N6 link is active only for Local Breakout traffic (not going through N9)
+	// - PSA-UPF N6 link is active only for traffic that came through N9
+
+	// Track per-UPF activity based on flow-level tracking
+	upfLocalActivity := make(map[string]bool)  // For I-UPF local breakout
+	upfN9Activity := make(map[string]bool)     // For PSA-UPF (traffic via N9)
+	upfTrafficRate := make(map[string]float64)
+
+	for _, session := range s.sessions {
+		upfIP := session.UPFIP
+		if upfIP == "" {
+			upfIP = "UPF-Local"
+		}
+
+		// Check for local breakout activity (I-UPF direct to DN)
+		if hasActiveFlowToLocalBreakout(session) {
+			// If this session has an I-UPF (N9PeerIP != ""), mark I-UPF as having local activity
+			if session.N9PeerIP != "" {
+				upfLocalActivity[session.N9PeerIP] = true
+			} else {
+				// No ULCL, mark main UPF as active
+				upfLocalActivity[upfIP] = true
+			}
+		}
+
+		// Check for N9 activity (traffic going to PSA-UPF)
+		if hasActiveFlowToN9Peer(session) {
+			// Mark PSA-UPF as active (traffic is coming from I-UPF via N9)
+			upfN9Activity[upfIP] = true
+		}
+
+		upfTrafficRate[upfIP] += calculateTrafficRate(session)
+	}
+
+	// Add N6 link for all UPFs with flow-aware activity
 	for _, n := range nodes {
 		if n.Type == "upf" {
-			links = append(links, TopologyLink{
-				Source: n.ID,
-				Target: dnID,
-				Label:  "N6",
-				Type:   "n6",
-			})
+			linkKey := n.ID + "->" + dnID
+			if !linkSet[linkKey] {
+				linkSet[linkKey] = true
+
+				// Determine if this UPF's N6 link has active traffic
+				// Check both local breakout activity and N9-forwarded activity
+				hasActive := upfLocalActivity[n.ID] || upfN9Activity[n.ID]
+
+				// Fallback: if no flow tracking data, use session-level activity
+				if !hasActive {
+					for _, session := range s.sessions {
+						sessUPF := session.UPFIP
+						if sessUPF == "" {
+							sessUPF = "UPF-Local"
+						}
+						if sessUPF == n.ID && len(session.FlowTraffic) == 0 && isSessionActive(session) {
+							hasActive = true
+							break
+						}
+					}
+				}
+
+				links = append(links, TopologyLink{
+					Source:           n.ID,
+					Target:           dnID,
+					Label:            "N6",
+					Type:             "n6",
+					HasActiveTraffic: hasActive,
+					TrafficRate:      upfTrafficRate[n.ID],
+				})
+			}
 		}
 	}
 

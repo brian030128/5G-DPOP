@@ -770,26 +770,31 @@ func (s *Sniffer) extractGNBIPFromModification(ieData []byte, session *Session) 
 	})
 }
 
-// extractTEIDs extracts all F-TEIDs from PFCP IEs (including nested IEs)
+// extractTEIDs extracts F-TEIDs (UPF's own TEIDs) from PFCP IEs (including nested IEs)
+// NOTE: We do NOT extract Outer Header Creation TEIDs here because those are the
+// destination TEIDs (gNB or peer UPF), not the UPF's own TEIDs. The Outer Header
+// Creation TEID belongs to the remote endpoint (gNB) and may be shared across
+// multiple PDU sessions, which would cause incorrect TEID association.
 func (s *Sniffer) extractTEIDs(ieData []byte) []uint32 {
 	teids := make([]uint32, 0)
 	s.parseIEsRecursive(ieData, func(ieType uint16, ieValue []byte) {
-		// F-TEID IE (Type 21)
+		// F-TEID IE (Type 21) - This is the UPF's own TEID for receiving packets
 		if ieType == IETypeFTEID && len(ieValue) >= 5 {
 			// First byte is flags, next 4 bytes is TEID
 			teid := binary.BigEndian.Uint32(ieValue[1:5])
 			if teid > 0 {
 				teids = append(teids, teid)
-				log.Printf("   └─ Found F-TEID: 0x%x", teid)
+				log.Printf("   └─ Found F-TEID (UPF): 0x%x", teid)
 			}
 		}
-		// Outer Header Creation IE (Type 84) - contains TEID for downlink
+		// NOTE: Outer Header Creation IE (Type 84) contains the DESTINATION TEID
+		// (where UPF should send packets to, e.g., gNB's TEID). This TEID belongs
+		// to the gNB, not to this session, so we don't extract it here.
+		// It's only logged for debugging purposes.
 		if ieType == 84 && len(ieValue) >= 6 {
-			// Flags (2 bytes) + TEID (4 bytes)
 			teid := binary.BigEndian.Uint32(ieValue[2:6])
 			if teid > 0 {
-				teids = append(teids, teid)
-				log.Printf("   └─ Found Outer Header TEID: 0x%x", teid)
+				log.Printf("   └─ Outer Header Creation TEID (gNB dest): 0x%x (not added to session)", teid)
 			}
 		}
 	})
