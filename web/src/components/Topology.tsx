@@ -61,12 +61,12 @@ export default function Topology({ sessions, drops, theme = 'dark' }: TopologyPr
 
     // Layout configuration
     const width = 800
-    const padding = 50
+    const padding = 30
 
     // Dynamic height based on node count to prevent overlapping
     const maxNodes = Math.max(...Object.values(nodesByType).map(n => n.length))
-    const minHeight = 600
-    const height = Math.max(minHeight, (maxNodes + 1) * 180)
+    const minHeight = 350
+    const height = Math.max(minHeight, maxNodes * 120 + padding * 2)
 
     const layers = ['ue', 'gnb', 'upf', 'dn']
     const layerX = {
